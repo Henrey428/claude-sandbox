@@ -5,31 +5,36 @@ set -euo pipefail
 # claude-sandbox — Launch a devcontainer with multiple repos
 #
 # Usage:
+#   # Explicit main repo
 #   claude-sandbox --main org/main-repo [--repo org/other-repo ...] [OPTIONS]
 #
+#   # From inside a git repo (auto-detects current repo + branch)
+#   claude-sandbox
+#   claude-sandbox --branch other-branch
+#   claude-sandbox --repo org/extra-repo
+#
 # Examples:
-#   # Single repo
+#   # Auto-detect: sandbox current repo on current branch
+#   claude-sandbox
+#
+#   # Auto-detect: current repo on a different branch
+#   claude-sandbox --branch feature-x
+#
+#   # Auto-detect: current repo + extra repo
+#   claude-sandbox --repo myorg/shared-lib@feature-x
+#
+#   # Explicit: single repo
 #   claude-sandbox --main myorg/api-service
 #
-#   # Multi-repo: main + related repos
+#   # Explicit: multi-repo
 #   claude-sandbox \
-#     --main myorg/api-service \
-#     --repo myorg/shared-lib \
-#     --repo myorg/infra-config
-#
-#   # With a branch and auto-run Claude
-#   claude-sandbox \
-#     --main myorg/api-service \
-#     --repo myorg/shared-lib \
-#     --branch fix-auth \
-#     --claude "Fix the auth bug in issue #42, using shared-lib as reference"
-#
-#   # Interactive mode (default — drops you into a shell)
-#   claude-sandbox --main myorg/api-service --repo myorg/docs
+#     --main myorg/api-service@fix-auth \
+#     --repo myorg/shared-lib
 # ─────────────────────────────────────────────────────────────
 
 MAIN_REPO=""
 MAIN_BRANCH=""
+BRANCH_OVERRIDE=""
 EXTRA_REPOS=()    # "org/repo" entries
 EXTRA_BRANCHES=() # corresponding branch per repo ("" if none)
 CLAUDE_PROMPT=""
@@ -38,19 +43,23 @@ DEVCONTAINER_DIR=""
 usage() {
   cat << 'EOF'
 Usage:
-  claude-sandbox --main org/repo[@branch] [--repo org/repo[@branch] ...] [OPTIONS]
+  claude-sandbox [OPTIONS]                                       (auto-detect from current git repo)
+  claude-sandbox --main org/repo[@branch] [OPTIONS]              (explicit main repo)
 
 Options:
-  --main org/repo[@branch]   Main repo (required). Append @branch to check out a specific branch.
+  --main org/repo[@branch]   Main repo. Append @branch for a specific branch.
+                             If omitted, auto-detects from current git directory.
+  --branch <branch>          Override branch for the main repo (useful with auto-detect).
   --repo org/repo[@branch]   Additional repo. Repeat for multiple. Append @branch per repo.
   --claude "prompt"          Run Claude Code non-interactively with this prompt.
   --dir /path                Override the devcontainer project directory.
   -h, --help                 Show this help.
 
 Examples:
-  claude-sandbox --main myorg/api@main
-  claude-sandbox --main myorg/api@feature-x --repo myorg/lib@feature-x
-  claude-sandbox --main myorg/api@fix-auth --repo myorg/lib@v2 --repo myorg/infra
+  claude-sandbox                                                 # current repo, current branch
+  claude-sandbox --branch feature-x                              # current repo, different branch
+  claude-sandbox --repo myorg/lib@feature-x                      # current repo + extra repo
+  claude-sandbox --main myorg/api@main --repo myorg/lib          # explicit
 EOF
   exit 1
 }
@@ -75,6 +84,7 @@ while [[ $# -gt 0 ]]; do
       EXTRA_REPOS+=("$repo")
       EXTRA_BRANCHES+=("$branch")
       shift 2 ;;
+    --branch)     BRANCH_OVERRIDE="$2"; shift 2 ;;
     --claude)     CLAUDE_PROMPT="$2"; shift 2 ;;
     --dir)        DEVCONTAINER_DIR="$2"; shift 2 ;;
     -h|--help)    usage ;;
@@ -82,7 +92,27 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -z "$MAIN_REPO" ]] && { echo "Error: --main is required"; usage; }
+# ─── Auto-detect from current git repo if --main not provided ───
+if [[ -z "$MAIN_REPO" ]]; then
+  if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+    echo "Error: --main is required (or run from inside a git repo)"
+    usage
+  fi
+  REMOTE_URL=$(git remote get-url origin 2>/dev/null || true)
+  if [[ -z "$REMOTE_URL" ]]; then
+    echo "Error: no 'origin' remote found in current git repo"
+    exit 1
+  fi
+  # Extract org/repo from SSH or HTTPS URL
+  MAIN_REPO=$(echo "$REMOTE_URL" | sed -E 's|^git@github\.com:|/|;s|^https://github\.com/||;s|\.git$||;s|^/||')
+  MAIN_BRANCH=$(git branch --show-current 2>/dev/null || echo "")
+  echo "==> Auto-detected repo: $MAIN_REPO${MAIN_BRANCH:+ @ $MAIN_BRANCH}"
+fi
+
+# --branch overrides the main repo branch
+if [[ -n "$BRANCH_OVERRIDE" ]]; then
+  MAIN_BRANCH="$BRANCH_OVERRIDE"
+fi
 
 # ─── Resolve devcontainer project dir ───
 if [[ -z "$DEVCONTAINER_DIR" ]]; then

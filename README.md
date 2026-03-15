@@ -17,6 +17,10 @@ Containers are automatically cleaned up on exit.
 git clone git@github.com:Henrey428/claude-sandbox.git
 cd claude-sandbox
 chmod +x claude-sandbox
+
+# Add to PATH so you can run it from any repo
+# (add to ~/.bashrc or ~/.zshrc)
+export PATH="$PATH:$HOME/claude-sandbox"
 ```
 
 ### First-time authentication
@@ -32,14 +36,16 @@ This saves credentials to `~/.claude/.credentials.json` on your host (via bind m
 ## Usage
 
 ```
-claude-sandbox --main org/repo[@branch] [--repo org/repo[@branch] ...] [OPTIONS]
+claude-sandbox [OPTIONS]                                    # auto-detect from current git repo
+claude-sandbox --main org/repo[@branch] [OPTIONS]           # explicit main repo
 ```
 
 ### Options
 
 | Flag | Description |
 |------|-------------|
-| `--main org/repo[@branch]` | Main repo (required). Append `@branch` for a specific branch. |
+| `--main org/repo[@branch]` | Main repo. If omitted, auto-detects from current git directory. |
+| `--branch <branch>` | Override branch for the main repo (useful with auto-detect). |
 | `--repo org/repo[@branch]` | Additional repo. Repeat for multiple. |
 | `--claude "prompt"` | Run Claude non-interactively with this prompt. |
 | `--dir /path` | Override the temp project directory. |
@@ -48,25 +54,24 @@ claude-sandbox --main org/repo[@branch] [--repo org/repo[@branch] ...] [OPTIONS]
 ### Examples
 
 ```bash
-# Single repo — drops into an interactive shell
-./claude-sandbox --main myorg/api-service
+# From inside any git repo — sandbox current repo on current branch
+claude-sandbox
 
-# Multi-repo with branches
-./claude-sandbox \
-  --main myorg/api-service@feature-x \
-  --repo myorg/shared-lib@feature-x
+# Same repo, different branch
+claude-sandbox --branch feature-x
 
-# Different branches per repo
-./claude-sandbox \
+# Current repo + an extra repo
+claude-sandbox --repo myorg/shared-lib@feature-x
+
+# Current repo, different branch, with Claude prompt
+claude-sandbox --branch fix-auth \
+  --claude "Fix the auth bug in issue #42"
+
+# Explicit: specify everything
+claude-sandbox \
   --main myorg/api-service@fix-auth \
   --repo myorg/shared-lib@v2-refactor \
   --repo myorg/infra-config@staging
-
-# Non-interactive — run Claude with a prompt and exit
-./claude-sandbox \
-  --main myorg/api-service@fix-auth \
-  --repo myorg/shared-lib@fix-auth \
-  --claude "Fix the auth middleware using the updated types from shared-lib"
 ```
 
 ## Inside the container
