@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "==> Installing Claude Code..."
-npm install -g @anthropic-ai/claude-code
+echo "==> Checking Claude Code..."
+if command -v claude &> /dev/null; then
+  echo "  ✓ Claude Code already installed ($(claude --version 2>/dev/null || echo 'cached'))"
+else
+  echo "  Installing Claude Code..."
+  npm install -g @anthropic-ai/claude-code
+fi
 
 echo "==> Making gitconfig writable..."
 if [ -f "$HOME/.gitconfig-host" ]; then

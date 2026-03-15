@@ -127,6 +127,7 @@ mkdir -p "$DEVCONTAINER_DIR/.devcontainer"
 # Copy devcontainer config (assumes they live next to this script)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cp "$SCRIPT_DIR/.devcontainer/devcontainer.json" "$DEVCONTAINER_DIR/.devcontainer/"
+cp "$SCRIPT_DIR/.devcontainer/Dockerfile" "$DEVCONTAINER_DIR/.devcontainer/"
 cp "$SCRIPT_DIR/.devcontainer/setup.sh" "$DEVCONTAINER_DIR/.devcontainer/"
 
 # ─── Generate an init script that clones repos inside the container ───

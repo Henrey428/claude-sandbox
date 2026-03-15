@@ -1,6 +1,8 @@
 {
   "name": "claude-code-sandbox",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
 
   // --- Host credential mounts (read-only) ---
   "mounts": [
@@ -30,10 +32,7 @@
   ],
 
   "features": {
-    "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/devcontainers/features/node:1": {
-      "version": "lts"
-    }
+    "ghcr.io/devcontainers/features/github-cli:1": {}
   },
 
   "postCreateCommand": "bash .devcontainer/setup.sh",
