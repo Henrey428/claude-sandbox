@@ -184,14 +184,28 @@ fi
 
 devcontainer up --workspace-folder "$DEVCONTAINER_DIR"
 
+# Get the container ID for cleanup
+CONTAINER_ID=$(docker ps -q --filter "label=devcontainer.local_folder=$DEVCONTAINER_DIR")
+
+cleanup() {
+  echo ""
+  echo "==> Cleaning up sandbox..."
+  if [[ -n "$CONTAINER_ID" ]]; then
+    docker rm -f "$CONTAINER_ID" > /dev/null 2>&1 && echo "    Container removed."
+  fi
+  rm -rf "$DEVCONTAINER_DIR" && echo "    Temp directory removed."
+}
+trap cleanup EXIT
+
 CONTAINER_WORKSPACE="/workspaces/$(basename "$DEVCONTAINER_DIR")"
 
 if [[ -n "$CLAUDE_PROMPT" ]]; then
   echo "==> Running Claude Code with prompt..."
   devcontainer exec --workspace-folder "$DEVCONTAINER_DIR" \
-    bash -c "cd $CONTAINER_WORKSPACE/main && claude -p '${CLAUDE_PROMPT//\'/\'\\\'\'}'"
+    bash -c "cd $CONTAINER_WORKSPACE/main && claude --dangerously-skip-permissions -p '${CLAUDE_PROMPT//\'/\'\\\'\'}'"
 else
   echo "==> Dropping into shell (main repo is at $CONTAINER_WORKSPACE/main)..."
+  echo "    Claude: run 'claude --dangerously-skip-permissions' for full auto-approve"
   devcontainer exec --workspace-folder "$DEVCONTAINER_DIR" \
-    bash -c "source ~/.bashrc && cd $CONTAINER_WORKSPACE/main && exec bash"
+    bash -c "source ~/.bashrc && cd $CONTAINER_WORKSPACE/main && alias claude='claude --dangerously-skip-permissions' && exec bash"
 fi

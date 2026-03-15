@@ -102,4 +102,14 @@ ws-main() {
 
 HELPERS
 
+echo "==> Checking Claude Code authentication..."
+if [ -f "$HOME/.claude/.credentials.json" ]; then
+  echo "  ✓ Credentials found — already authenticated."
+else
+  echo ""
+  echo "  ⚠ No credentials found. Run 'claude login' once to authenticate."
+  echo "    Your login will persist across container rebuilds."
+  echo ""
+fi
+
 echo "==> Setup complete."
