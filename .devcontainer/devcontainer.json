@@ -1,0 +1,55 @@
+{
+  "name": "claude-code-sandbox",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+
+  // --- Host credential mounts (read-only) ---
+  "mounts": [
+    {
+      "source": "${localEnv:HOME}/.ssh",
+      "target": "/home/vscode/.ssh",
+      "type": "bind",
+      "readOnly": true
+    },
+    {
+      "source": "${localEnv:HOME}/.config/gh",
+      "target": "/home/vscode/.config/gh",
+      "type": "bind",
+      "readOnly": true
+    },
+    {
+      "source": "${localEnv:HOME}/.claude",
+      "target": "/home/vscode/.claude",
+      "type": "bind"
+    },
+    {
+      "source": "${localEnv:HOME}/.gitconfig",
+      "target": "/home/vscode/.gitconfig-host",
+      "type": "bind",
+      "readOnly": true
+    }
+  ],
+
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts"
+    }
+  },
+
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+
+  "remoteUser": "vscode",
+
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
+    "GIT_CONFIG_GLOBAL": "/home/vscode/.gitconfig-local"
+  },
+
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}

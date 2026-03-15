@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ─────────────────────────────────────────────────────────────
+# claude-sandbox — Launch a devcontainer with multiple repos
+#
+# Usage:
+#   claude-sandbox --main org/main-repo [--repo org/other-repo ...] [OPTIONS]
+#
+# Examples:
+#   # Single repo
+#   claude-sandbox --main myorg/api-service
+#
+#   # Multi-repo: main + related repos
+#   claude-sandbox \
+#     --main myorg/api-service \
+#     --repo myorg/shared-lib \
+#     --repo myorg/infra-config
+#
+#   # With a branch and auto-run Claude
+#   claude-sandbox \
+#     --main myorg/api-service \
+#     --repo myorg/shared-lib \
+#     --branch fix-auth \
+#     --claude "Fix the auth bug in issue #42, using shared-lib as reference"
+#
+#   # Interactive mode (default — drops you into a shell)
+#   claude-sandbox --main myorg/api-service --repo myorg/docs
+# ─────────────────────────────────────────────────────────────
+
+MAIN_REPO=""
+MAIN_BRANCH=""
+EXTRA_REPOS=()    # "org/repo" entries
+EXTRA_BRANCHES=() # corresponding branch per repo ("" if none)
+CLAUDE_PROMPT=""
+DEVCONTAINER_DIR=""
+
+usage() {
+  cat << 'EOF'
+Usage:
+  claude-sandbox --main org/repo[@branch] [--repo org/repo[@branch] ...] [OPTIONS]
+
+Options:
+  --main org/repo[@branch]   Main repo (required). Append @branch to check out a specific branch.
+  --repo org/repo[@branch]   Additional repo. Repeat for multiple. Append @branch per repo.
+  --claude "prompt"          Run Claude Code non-interactively with this prompt.
+  --dir /path                Override the devcontainer project directory.
+  -h, --help                 Show this help.
+
+Examples:
+  claude-sandbox --main myorg/api@main
+  claude-sandbox --main myorg/api@feature-x --repo myorg/lib@feature-x
+  claude-sandbox --main myorg/api@fix-auth --repo myorg/lib@v2 --repo myorg/infra
+EOF
+  exit 1
+}
+
+# Parse repo[@branch] into repo and branch parts
+parse_repo_ref() {
+  local ref="$1"
+  if [[ "$ref" == *"@"* ]]; then
+    echo "${ref%@*}" "${ref##*@}"
+  else
+    echo "$ref" ""
+  fi
+}
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --main)
+      read -r MAIN_REPO MAIN_BRANCH <<< "$(parse_repo_ref "$2")"
+      shift 2 ;;
+    --repo)
+      read -r repo branch <<< "$(parse_repo_ref "$2")"
+      EXTRA_REPOS+=("$repo")
+      EXTRA_BRANCHES+=("$branch")
+      shift 2 ;;
+    --claude)     CLAUDE_PROMPT="$2"; shift 2 ;;
+    --dir)        DEVCONTAINER_DIR="$2"; shift 2 ;;
+    -h|--help)    usage ;;
+    *)            echo "Unknown option: $1"; usage ;;
+  esac
+done
+
+[[ -z "$MAIN_REPO" ]] && { echo "Error: --main is required"; usage; }
+
+# ─── Resolve devcontainer project dir ───
+if [[ -z "$DEVCONTAINER_DIR" ]]; then
+  # Default: use a temp project dir named after the main repo
+  SANDBOX_NAME="sandbox-$(basename "$MAIN_REPO")-$$"
+  DEVCONTAINER_DIR="/tmp/$SANDBOX_NAME"
+fi
+
+echo "==> Setting up devcontainer project at $DEVCONTAINER_DIR"
+mkdir -p "$DEVCONTAINER_DIR/.devcontainer"
+
+# Copy devcontainer config (assumes they live next to this script)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cp "$SCRIPT_DIR/.devcontainer/devcontainer.json" "$DEVCONTAINER_DIR/.devcontainer/"
+cp "$SCRIPT_DIR/.devcontainer/setup.sh" "$DEVCONTAINER_DIR/.devcontainer/"
+
+# ─── Generate an init script that clones repos inside the container ───
+cat > "$DEVCONTAINER_DIR/.devcontainer/init-repos.sh" << INIT
+#!/usr/bin/env bash
+set -euo pipefail
+
+WORKSPACE_DIR="/workspaces/$(basename "$DEVCONTAINER_DIR")"
+REPOS_DIR="\$WORKSPACE_DIR/repos"
+mkdir -p "\$REPOS_DIR"
+
+clone_repo() {
+  local repo="\$1"
+  local branch="\$2"
+  local name="\$(basename "\$repo")"
+  local target="\$REPOS_DIR/\$name"
+
+  if [ -d "\$target" ]; then
+    echo "  ↻ \$name already cloned, pulling latest..."
+    git -C "\$target" pull --ff-only 2>/dev/null || true
+  else
+    echo "  ⬇ Cloning \$repo → \$target"
+    git clone "git@github.com:\$repo.git" "\$target"
+  fi
+
+  # Check out branch if specified
+  if [ -n "\$branch" ]; then
+    echo "  ↳ Checking out branch: \$branch"
+    git -C "\$target" fetch origin "\$branch" 2>/dev/null || true
+    git -C "\$target" checkout "\$branch" 2>/dev/null || \
+      git -C "\$target" checkout -b "\$branch" "origin/\$branch" 2>/dev/null || \
+      echo "  ⚠ Could not check out \$branch (creating as new branch from HEAD)"
+    git -C "\$target" checkout -b "\$branch" 2>/dev/null || true
+  fi
+}
+
+echo "==> Cloning repositories..."
+
+# Main repo
+clone_repo "$MAIN_REPO" "$MAIN_BRANCH"
+MAIN_NAME="\$(basename "$MAIN_REPO")"
+ln -sfn "\$REPOS_DIR/\$MAIN_NAME" "\$WORKSPACE_DIR/main"
+echo "  ★ Main repo: \$MAIN_NAME"
+
+# Extra repos
+INIT
+
+for i in "${!EXTRA_REPOS[@]}"; do
+  repo="${EXTRA_REPOS[$i]}"
+  branch="${EXTRA_BRANCHES[$i]}"
+  echo "clone_repo \"$repo\" \"$branch\"" >> "$DEVCONTAINER_DIR/.devcontainer/init-repos.sh"
+done
+
+cat >> "$DEVCONTAINER_DIR/.devcontainer/init-repos.sh" << 'FOOTER'
+
+echo ""
+echo "==> Workspace ready. Layout:"
+echo ""
+ws-status 2>/dev/null || ls -la "$REPOS_DIR/"
+echo ""
+echo "Commands: ws-status, ws-cd <repo>, ws-main, wt-add <branch>"
+FOOTER
+
+chmod +x "$DEVCONTAINER_DIR/.devcontainer/init-repos.sh"
+
+# ─── Patch postCreateCommand to also run init-repos ───
+# We chain it: setup.sh runs first, then init-repos.sh
+sed -i '' 's|"postCreateCommand":.*|"postCreateCommand": "bash .devcontainer/setup.sh \&\& bash .devcontainer/init-repos.sh",|' \
+  "$DEVCONTAINER_DIR/.devcontainer/devcontainer.json"
+
+# ─── Launch ───
+echo "==> Starting devcontainer..."
+echo "    Main repo:  $MAIN_REPO${MAIN_BRANCH:+ @ $MAIN_BRANCH}"
+for i in "${!EXTRA_REPOS[@]}"; do
+  b="${EXTRA_BRANCHES[$i]}"
+  echo "    Extra repo: ${EXTRA_REPOS[$i]}${b:+ @ $b}"
+done
+echo ""
+
+# Ensure devcontainer CLI is available
+if ! command -v devcontainer &> /dev/null; then
+  echo "Error: devcontainer CLI not found. Install with: npm install -g @devcontainers/cli"
+  exit 1
+fi
+
+devcontainer up --workspace-folder "$DEVCONTAINER_DIR"
+
+CONTAINER_WORKSPACE="/workspaces/$(basename "$DEVCONTAINER_DIR")"
+
+if [[ -n "$CLAUDE_PROMPT" ]]; then
+  echo "==> Running Claude Code with prompt..."
+  devcontainer exec --workspace-folder "$DEVCONTAINER_DIR" \
+    bash -c "cd $CONTAINER_WORKSPACE/main && claude -p '${CLAUDE_PROMPT//\'/\'\\\'\'}'"
+else
+  echo "==> Dropping into shell (main repo is at $CONTAINER_WORKSPACE/main)..."
+  devcontainer exec --workspace-folder "$DEVCONTAINER_DIR" \
+    bash -c "source ~/.bashrc && cd $CONTAINER_WORKSPACE/main && exec bash"
+fi
