@@ -109,5 +109,10 @@ Repos are cloned into `repos/` inside the workspace directory, with `main` symli
 1. Creates a temp directory under `/tmp` with devcontainer config
 2. Starts a Docker container (`mcr.microsoft.com/devcontainers/base:ubuntu`)
 3. Installs Claude Code, clones repos via SSH
-4. Mounts `~/.ssh`, `~/.config/gh`, `~/.claude`, and `~/.gitconfig` from the host
+4. Mounts `~/.ssh`, `~/.config/gh`, and `~/.gitconfig` read-only from the host; mounts `~/.claude` read-write so that `claude login` credentials persist across containers
 5. On exit (shell close, Ctrl+C, or prompt completion), the container and temp directory are automatically removed
+
+## Security notes
+
+- `~/.ssh`, `~/.config/gh`, and `~/.gitconfig` are mounted **read-only** into the container.
+- `~/.claude` is mounted **read-write** so that credentials saved via `claude login` persist across container rebuilds. This means code running inside the sandbox can read and write to your host `~/.claude` directory. If this is a concern, you can back up `~/.claude` before running the sandbox or switch the mount to read-only in `devcontainer.json` (you'll need to re-authenticate on every launch).

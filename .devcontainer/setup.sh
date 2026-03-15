@@ -20,7 +20,19 @@ if [ -d "$HOME/.ssh" ]; then
   chmod 700 "$HOME/.ssh-local"
   chmod 600 "$HOME/.ssh-local"/* 2>/dev/null || true
   chmod 644 "$HOME/.ssh-local"/*.pub 2>/dev/null || true
-  git config --global core.sshCommand "ssh -o StrictHostKeyChecking=accept-new -i $HOME/.ssh-local/id_ed25519"
+  # Auto-detect SSH key: prefer ed25519, fall back to rsa
+  SSH_KEY=""
+  for key in id_ed25519 id_rsa; do
+    if [ -f "$HOME/.ssh-local/$key" ]; then
+      SSH_KEY="$HOME/.ssh-local/$key"
+      break
+    fi
+  done
+  if [ -n "$SSH_KEY" ]; then
+    git config --global core.sshCommand "ssh -o StrictHostKeyChecking=accept-new -i $SSH_KEY"
+  else
+    echo "  ⚠ No SSH key found (looked for id_ed25519, id_rsa)"
+  fi
 fi
 
 echo "==> Setting up workspace helpers..."
