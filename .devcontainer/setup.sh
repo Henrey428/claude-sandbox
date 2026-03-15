@@ -102,6 +102,9 @@ ws-main() {
 
 HELPERS
 
+# Always use --dangerously-skip-permissions inside the sandbox container
+echo "alias claude='claude --dangerously-skip-permissions'" >> "$HOME/.bashrc"
+
 echo "==> Checking Claude Code authentication..."
 if [ -f "$HOME/.claude/.credentials.json" ]; then
   echo "  ✓ Credentials found — already authenticated."
