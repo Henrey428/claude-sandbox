@@ -35,14 +35,16 @@
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
 
+  // Extract gh token from host keychain before container starts
+  "initializeCommand": "gh auth token > ~/.config/gh/.gh-token 2>/dev/null || true",
+
   "postCreateCommand": "bash .devcontainer/setup.sh",
 
   "remoteUser": "vscode",
 
   "containerEnv": {
     "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
-    "GIT_CONFIG_GLOBAL": "/home/vscode/.gitconfig-local",
-    "GH_CONFIG_DIR": "/home/vscode/.config/gh-local"
+    "GIT_CONFIG_GLOBAL": "/home/vscode/.gitconfig-local"
   },
 
   "customizations": {

@@ -35,12 +35,23 @@ if [ -d "$HOME/.ssh" ]; then
   fi
 fi
 
-echo "==> Making GitHub CLI config writable..."
-if [ -d "$HOME/.config/gh-host" ]; then
-  cp -r "$HOME/.config/gh-host" "$HOME/.config/gh-local"
-  echo "  ✓ GitHub CLI credentials copied."
+echo "==> Setting up GitHub CLI authentication..."
+GH_TOKEN_FILE="$HOME/.config/gh-host/.gh-token"
+if [ -f "$GH_TOKEN_FILE" ] && [ -s "$GH_TOKEN_FILE" ]; then
+  GH_TOKEN_VALUE=$(cat "$GH_TOKEN_FILE")
+  # Export GH_TOKEN so gh CLI and git credential helpers work everywhere
+  echo "export GH_TOKEN='$GH_TOKEN_VALUE'" >> "$HOME/.bashrc"
+  export GH_TOKEN="$GH_TOKEN_VALUE"
+  # Verify the token works
+  if gh auth status &>/dev/null; then
+    echo "  ✓ GitHub CLI authenticated (token from host keychain)."
+  else
+    echo "  ⚠ Token found but gh auth status failed — token may be expired."
+    echo "    Run 'gh auth login' on the host to refresh."
+  fi
 else
-  echo "  ⚠ No gh config found. Run 'gh auth login' on the host first."
+  echo "  ⚠ No GitHub token found. Run 'gh auth login' on the host first."
+  echo "    (The host keychain token is extracted via initializeCommand.)"
 fi
 
 echo "==> Setting up workspace helpers..."
