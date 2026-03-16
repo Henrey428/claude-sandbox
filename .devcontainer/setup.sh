@@ -130,6 +130,68 @@ HELPERS
 # Always use --dangerously-skip-permissions inside the sandbox container
 echo "alias claude='claude --dangerously-skip-permissions'" >> "$HOME/.bashrc"
 
+echo "==> Auto-trusting workspace directories for Claude Code..."
+CLAUDE_JSON="$HOME/.claude/.claude.json"
+CLAUDE_PROJECTS_DIR="$HOME/.claude/projects"
+if [ -f "$CLAUDE_JSON" ]; then
+  # 1) Purge stale /workspaces/* entries left by previous containers
+  removed=$(python3 -c "
+import json, sys
+f = '$CLAUDE_JSON'
+d = json.load(open(f))
+projects = d.get('projects', {})
+stale = [k for k in projects if k.startswith('/workspaces/')]
+for k in stale:
+    del projects[k]
+if stale:
+    json.dump(d, open(f, 'w'), indent=2)
+print(len(stale))
+")
+  [ "$removed" -gt 0 ] 2>/dev/null && echo "  ✓ Cleaned $removed stale container trust entries"
+
+  # Also remove stale project data directories (-workspaces-*)
+  if [ -d "$CLAUDE_PROJECTS_DIR" ]; then
+    for stale_dir in "$CLAUDE_PROJECTS_DIR"/-workspaces-*/; do
+      [ -d "$stale_dir" ] || continue
+      rm -rf "$stale_dir"
+    done
+  fi
+
+  # 2) Trust all workspace directories in the current container
+  python3 -c "
+import json, glob, os
+f = '$CLAUDE_JSON'
+d = json.load(open(f))
+projects = d.setdefault('projects', {})
+trust = {'allowedTools': [], 'hasTrustDialogAccepted': True, 'hasCompletedProjectOnboarding': True}
+
+dirs = set()
+# Multi-repo layout: /workspaces/*/repos/*/
+for p in glob.glob('/workspaces/*/repos/*/'):
+    if os.path.isdir(p):
+        dirs.add(p.rstrip('/'))
+# Single-repo / workspace root: /workspaces/*/
+for p in glob.glob('/workspaces/*/'):
+    if os.path.isdir(p):
+        dirs.add(p.rstrip('/'))
+
+added = []
+for d_path in sorted(dirs):
+    if d_path not in projects:
+        projects[d_path] = dict(trust)
+        added.append(d_path)
+
+if added:
+    json.dump(d, open(f, 'w'), indent=2)
+    for a in added:
+        print(f'  ✓ Trusted: {a}')
+else:
+    print('  ✓ All workspace directories already trusted')
+"
+else
+  echo "  ⚠ Claude config not found — trust will be prompted on first run."
+fi
+
 echo "==> Checking Claude Code authentication..."
 if [ -f "$HOME/.claude/.credentials.json" ]; then
   echo "  ✓ Credentials found — already authenticated."
