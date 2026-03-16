@@ -14,7 +14,7 @@
     },
     {
       "source": "${localEnv:HOME}/.config/gh",
-      "target": "/home/vscode/.config/gh",
+      "target": "/home/vscode/.config/gh-host",
       "type": "bind",
       "readOnly": true
     },
@@ -41,7 +41,8 @@
 
   "containerEnv": {
     "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
-    "GIT_CONFIG_GLOBAL": "/home/vscode/.gitconfig-local"
+    "GIT_CONFIG_GLOBAL": "/home/vscode/.gitconfig-local",
+    "GH_CONFIG_DIR": "/home/vscode/.config/gh-local"
   },
 
   "customizations": {

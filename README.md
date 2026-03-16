@@ -25,13 +25,17 @@ export PATH="$PATH:$HOME/claude-sandbox"
 
 ### First-time authentication
 
-Claude Code credentials don't transfer from the macOS Keychain into the container automatically. On your first run, authenticate inside the container:
+**GitHub API access:** Run `gh auth login` once on your host machine. This stores a token in `~/.config/gh/` which is automatically forwarded into every sandbox container. All `gh` commands (PRs, issues, API calls) will work inside the sandbox without any extra setup.
+
+**Claude Code:** Credentials don't transfer from the macOS Keychain into the container automatically. On your first run, authenticate inside the container:
 
 ```bash
 claude login
 ```
 
 This saves credentials to `~/.claude/.credentials.json` on your host (via bind mount), so all future containers pick them up automatically.
+
+Both credentials only need to be set up once — they persist across all future sandbox sessions.
 
 ## Usage
 

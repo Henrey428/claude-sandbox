@@ -35,6 +35,14 @@ if [ -d "$HOME/.ssh" ]; then
   fi
 fi
 
+echo "==> Making GitHub CLI config writable..."
+if [ -d "$HOME/.config/gh-host" ]; then
+  cp -r "$HOME/.config/gh-host" "$HOME/.config/gh-local"
+  echo "  ✓ GitHub CLI credentials copied."
+else
+  echo "  ⚠ No gh config found. Run 'gh auth login' on the host first."
+fi
+
 echo "==> Setting up workspace helpers..."
 cat >> "$HOME/.bashrc" << 'HELPERS'
 
