@@ -28,6 +28,12 @@
       "target": "/home/vscode/.gitconfig-host",
       "type": "bind",
       "readOnly": true
+    },
+    {
+      "source": "${localEnv:HOME}/.gnupg",
+      "target": "/home/vscode/.gnupg-host",
+      "type": "bind",
+      "readOnly": true
     }
   ],
 

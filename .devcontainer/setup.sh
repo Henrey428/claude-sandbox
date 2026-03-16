@@ -54,6 +54,50 @@ else
   echo "    (The host keychain token is extracted via initializeCommand.)"
 fi
 
+echo "==> Setting up GPG key signing..."
+if [ -d "$HOME/.gnupg-host" ]; then
+  # Create a clean writable .gnupg with only the essential files
+  mkdir -p "$HOME/.gnupg/private-keys-v1.d"
+  chmod 700 "$HOME/.gnupg" "$HOME/.gnupg/private-keys-v1.d"
+
+  # Copy keyrings and private keys (skip lock files, sockets, agent state)
+  for f in pubring.kbx trustdb.gpg gpg.conf; do
+    [ -f "$HOME/.gnupg-host/$f" ] && cp "$HOME/.gnupg-host/$f" "$HOME/.gnupg/$f"
+  done
+  if [ -d "$HOME/.gnupg-host/private-keys-v1.d" ]; then
+    cp "$HOME/.gnupg-host/private-keys-v1.d/"*.key "$HOME/.gnupg/private-keys-v1.d/" 2>/dev/null || true
+    chmod 600 "$HOME/.gnupg/private-keys-v1.d/"*.key 2>/dev/null || true
+  fi
+
+  # Configure gpg-agent for terminal pinentry (no macOS keychain in container)
+  cat > "$HOME/.gnupg/gpg-agent.conf" << 'GPGAGENT'
+default-cache-ttl 21600
+max-cache-ttl 86400
+pinentry-program /usr/bin/pinentry-tty
+allow-loopback-pinentry
+GPGAGENT
+
+  # Ensure gpg uses loopback for non-interactive contexts (e.g. Claude)
+  if ! grep -q "pinentry-mode" "$HOME/.gnupg/gpg.conf" 2>/dev/null; then
+    echo "pinentry-mode loopback" >> "$HOME/.gnupg/gpg.conf"
+  fi
+
+  # Tell GPG which terminal to use for passphrase prompts
+  echo 'export GPG_TTY=$(tty)' >> "$HOME/.bashrc"
+
+  # Restart agent to pick up new config
+  gpgconf --kill gpg-agent 2>/dev/null || true
+
+  # Verify key is available
+  if gpg --list-secret-keys --keyid-format long 2>/dev/null | grep -q "sec"; then
+    echo "  ✓ GPG signing keys imported."
+  else
+    echo "  ⚠ GPG keys copied but no secret keys detected."
+  fi
+else
+  echo "  ⚠ No GPG keys found. Mount ~/.gnupg to enable commit signing."
+fi
+
 echo "==> Setting up workspace helpers..."
 cat >> "$HOME/.bashrc" << 'HELPERS'
 
