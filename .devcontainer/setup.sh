@@ -14,6 +14,10 @@ if [ -f "$HOME/.gitconfig-host" ]; then
   cp "$HOME/.gitconfig-host" "$HOME/.gitconfig-local"
 fi
 
+# Disable GPG commit signing inside the container (unreliable without a TTY)
+git config --file "$HOME/.gitconfig-local" commit.gpgsign false
+git config --file "$HOME/.gitconfig-local" tag.gpgsign false
+
 echo "==> Fixing SSH key permissions..."
 if [ -d "$HOME/.ssh" ]; then
   cp -r "$HOME/.ssh" "$HOME/.ssh-local"
@@ -54,6 +58,9 @@ else
   echo "    (The host keychain token is extracted via initializeCommand.)"
 fi
 
+# TODO: GPG signing is currently broken inside the container (no TTY for pinentry,
+#       gpg-preset-passphrase not always available). Signing is disabled via gitconfig
+#       above. Fix or remove this section once resolved.
 echo "==> Setting up GPG key signing..."
 if [ -d "$HOME/.gnupg-host" ]; then
   # Create a clean writable .gnupg with only the essential files
@@ -69,28 +76,41 @@ if [ -d "$HOME/.gnupg-host" ]; then
     chmod 600 "$HOME/.gnupg/private-keys-v1.d/"*.key 2>/dev/null || true
   fi
 
-  # Configure gpg-agent for terminal pinentry (no macOS keychain in container)
+  # Configure gpg-agent for non-interactive signing
   cat > "$HOME/.gnupg/gpg-agent.conf" << 'GPGAGENT'
-default-cache-ttl 21600
-max-cache-ttl 86400
-pinentry-program /usr/bin/pinentry-tty
+default-cache-ttl 86400
+max-cache-ttl 604800
+allow-preset-passphrase
 allow-loopback-pinentry
 GPGAGENT
-
-  # Ensure gpg uses loopback for non-interactive contexts (e.g. Claude)
-  if ! grep -q "pinentry-mode" "$HOME/.gnupg/gpg.conf" 2>/dev/null; then
-    echo "pinentry-mode loopback" >> "$HOME/.gnupg/gpg.conf"
-  fi
-
-  # Tell GPG which terminal to use for passphrase prompts
-  echo 'export GPG_TTY=$(tty)' >> "$HOME/.bashrc"
 
   # Restart agent to pick up new config
   gpgconf --kill gpg-agent 2>/dev/null || true
 
+  # Add helper to unlock GPG key once per session (caches passphrase in agent)
+  cat >> "$HOME/.bashrc" << 'GPGHELPER'
+export GPG_TTY=$(tty)
+gpg-unlock() {
+  local keygrip
+  keygrip=$(gpg --list-secret-keys --with-keygrip 2>/dev/null | awk '/^sec/{found=1} found && /Keygrip/{print $3; exit}')
+  if [ -z "$keygrip" ]; then
+    echo "No GPG secret key found."
+    return 1
+  fi
+  read -s -p "GPG passphrase: " passphrase
+  echo
+  if echo "$passphrase" | /usr/lib/gnupg/gpg-preset-passphrase --preset "$keygrip" 2>/dev/null; then
+    echo "GPG key unlocked — signing will work without a TTY."
+  else
+    echo "Failed to preset passphrase. Try: gpgconf --kill gpg-agent && gpg-unlock"
+  fi
+}
+GPGHELPER
+
   # Verify key is available
   if gpg --list-secret-keys --keyid-format long 2>/dev/null | grep -q "sec"; then
     echo "  ✓ GPG signing keys imported."
+    echo "    Run 'gpg-unlock' once to cache your passphrase for the session."
   else
     echo "  ⚠ GPG keys copied but no secret keys detected."
   fi
