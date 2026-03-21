@@ -18,44 +18,32 @@ fi
 git config --file "$HOME/.gitconfig-local" commit.gpgsign false
 git config --file "$HOME/.gitconfig-local" tag.gpgsign false
 
-echo "==> Fixing SSH key permissions..."
-if [ -d "$HOME/.ssh" ]; then
-  cp -r "$HOME/.ssh" "$HOME/.ssh-local"
-  chmod 700 "$HOME/.ssh-local"
-  chmod 600 "$HOME/.ssh-local"/* 2>/dev/null || true
-  chmod 644 "$HOME/.ssh-local"/*.pub 2>/dev/null || true
-  # Auto-detect SSH key: prefer ed25519, fall back to rsa
-  SSH_KEY=""
-  for key in id_ed25519 id_rsa; do
-    if [ -f "$HOME/.ssh-local/$key" ]; then
-      SSH_KEY="$HOME/.ssh-local/$key"
-      break
-    fi
-  done
-  if [ -n "$SSH_KEY" ]; then
-    git config --global core.sshCommand "ssh -o StrictHostKeyChecking=accept-new -i $SSH_KEY"
-  else
-    echo "  ⚠ No SSH key found (looked for id_ed25519, id_rsa)"
-  fi
-fi
+echo "==> Setting up GitHub authentication..."
+# SANDBOX_GITHUB_TOKEN is injected into containerEnv by the launcher
+GH_TOKEN_VALUE="${SANDBOX_GITHUB_TOKEN:-}"
 
-echo "==> Setting up GitHub CLI authentication..."
-GH_TOKEN_FILE="$HOME/.config/gh-host/.gh-token"
-if [ -f "$GH_TOKEN_FILE" ] && [ -s "$GH_TOKEN_FILE" ]; then
-  GH_TOKEN_VALUE=$(cat "$GH_TOKEN_FILE")
-  # Export GH_TOKEN so gh CLI and git credential helpers work everywhere
+if [ -n "$GH_TOKEN_VALUE" ]; then
+  # Export for gh CLI
   echo "export GH_TOKEN='$GH_TOKEN_VALUE'" >> "$HOME/.bashrc"
   export GH_TOKEN="$GH_TOKEN_VALUE"
+
+  # Configure git to use the token for HTTPS access to github.com
+  # This replaces SSH key auth — no private keys inside the container
+  # Write the token value directly into the helper (not an env var reference)
+  # so it works reliably in all contexts (postCreateCommand, interactive shell, etc.)
+  git config --file "$HOME/.gitconfig-local" \
+    credential.https://github.com.helper \
+    "!f() { echo username=x-access-token; echo password=$GH_TOKEN_VALUE; }; f"
+
   # Verify the token works
   if gh auth status &>/dev/null; then
-    echo "  ✓ GitHub CLI authenticated (token from host keychain)."
+    echo "  ✓ GitHub authenticated (token)."
   else
     echo "  ⚠ Token found but gh auth status failed — token may be expired."
-    echo "    Run 'gh auth login' on the host to refresh."
+    echo "    Check SANDBOX_GITHUB_TOKEN in your .env file."
   fi
 else
-  echo "  ⚠ No GitHub token found. Run 'gh auth login' on the host first."
-  echo "    (The host keychain token is extracted via initializeCommand.)"
+  echo "  ⚠ No GitHub token found. Set SANDBOX_GITHUB_TOKEN in your .env file."
 fi
 
 # TODO: GPG signing is currently broken inside the container (no TTY for pinentry,

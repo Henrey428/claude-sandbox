@@ -7,18 +7,6 @@
   // --- Host credential mounts (read-only) ---
   "mounts": [
     {
-      "source": "${localEnv:HOME}/.ssh",
-      "target": "/home/vscode/.ssh",
-      "type": "bind",
-      "readOnly": true
-    },
-    {
-      "source": "${localEnv:HOME}/.config/gh",
-      "target": "/home/vscode/.config/gh-host",
-      "type": "bind",
-      "readOnly": true
-    },
-    {
       "source": "${localEnv:HOME}/.claude",
       "target": "/home/vscode/.claude",
       "type": "bind"
@@ -40,9 +28,6 @@
   "features": {
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
-
-  // Extract gh token from host keychain before container starts
-  "initializeCommand": "gh auth token > ~/.config/gh/.gh-token 2>/dev/null || true",
 
   "postCreateCommand": "bash .devcontainer/setup.sh",
 

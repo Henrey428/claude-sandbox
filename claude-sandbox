@@ -32,6 +32,7 @@ set -euo pipefail
 #     --repo myorg/shared-lib
 # ─────────────────────────────────────────────────────────────
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MAIN_REPO=""
 MAIN_BRANCH=""
 BRANCH_OVERRIDE=""
@@ -114,6 +115,26 @@ if [[ -n "$BRANCH_OVERRIDE" ]]; then
   MAIN_BRANCH="$BRANCH_OVERRIDE"
 fi
 
+# ─── Resolve GitHub token ───
+# Load from .env file next to this script (not checked into git)
+ENV_FILE="$SCRIPT_DIR/.env"
+if [[ -f "$ENV_FILE" ]]; then
+  # Source only SANDBOX_GITHUB_TOKEN, ignore everything else safely
+  GITHUB_TOKEN_VALUE=$(grep -E '^SANDBOX_GITHUB_TOKEN=' "$ENV_FILE" | head -1 | cut -d= -f2-)
+  # Strip surrounding quotes if present
+  GITHUB_TOKEN_VALUE="${GITHUB_TOKEN_VALUE%\"}"
+  GITHUB_TOKEN_VALUE="${GITHUB_TOKEN_VALUE#\"}"
+  GITHUB_TOKEN_VALUE="${GITHUB_TOKEN_VALUE%\'}"
+  GITHUB_TOKEN_VALUE="${GITHUB_TOKEN_VALUE#\'}"
+fi
+if [[ -z "${GITHUB_TOKEN_VALUE:-}" ]]; then
+  echo "Error: No GitHub token found. Create a .env file with:"
+  echo "  SANDBOX_GITHUB_TOKEN=github_pat_..."
+  echo ""
+  echo "  See .env.example for details."
+  exit 1
+fi
+
 # ─── Resolve devcontainer project dir ───
 if [[ -z "$DEVCONTAINER_DIR" ]]; then
   # Default: use a temp project dir named after the main repo
@@ -125,10 +146,22 @@ echo "==> Setting up devcontainer project at $DEVCONTAINER_DIR"
 mkdir -p "$DEVCONTAINER_DIR/.devcontainer"
 
 # Copy devcontainer config (assumes they live next to this script)
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cp "$SCRIPT_DIR/.devcontainer/devcontainer.json" "$DEVCONTAINER_DIR/.devcontainer/"
 cp "$SCRIPT_DIR/.devcontainer/Dockerfile" "$DEVCONTAINER_DIR/.devcontainer/"
 cp "$SCRIPT_DIR/.devcontainer/setup.sh" "$DEVCONTAINER_DIR/.devcontainer/"
+
+# ─── Inject GitHub token into container environment ───
+if [[ -n "$GITHUB_TOKEN_VALUE" ]]; then
+  # Add SANDBOX_GITHUB_TOKEN to containerEnv in the copied devcontainer.json
+  INJECT_TOKEN="$GITHUB_TOKEN_VALUE" python3 -c "
+import json, re, os
+f = '$DEVCONTAINER_DIR/.devcontainer/devcontainer.json'
+raw = re.sub(r'//.*', '', open(f).read())
+d = json.loads(raw)
+d.setdefault('containerEnv', {})['SANDBOX_GITHUB_TOKEN'] = os.environ['INJECT_TOKEN']
+json.dump(d, open(f, 'w'), indent=2)
+"
+fi
 
 # ─── Generate an init script that clones repos inside the container ───
 cat > "$DEVCONTAINER_DIR/.devcontainer/init-repos.sh" << INIT
@@ -150,7 +183,7 @@ clone_repo() {
     git -C "\$target" pull --ff-only 2>/dev/null || true
   else
     echo "  ⬇ Cloning \$repo → \$target"
-    git clone "git@github.com:\$repo.git" "\$target"
+    git clone "https://github.com/\$repo.git" "\$target"
   fi
 
   # Check out branch if specified
