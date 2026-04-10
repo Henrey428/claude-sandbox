@@ -152,13 +152,14 @@ cp "$SCRIPT_DIR/.devcontainer/setup.sh" "$DEVCONTAINER_DIR/.devcontainer/"
 
 # ─── Inject GitHub token into container environment ───
 if [[ -n "$GITHUB_TOKEN_VALUE" ]]; then
-  # Add SANDBOX_GITHUB_TOKEN to containerEnv in the copied devcontainer.json
+  # Add SANDBOX_GITHUB_TOKEN to remoteEnv (runtime, not build-time) to avoid
+  # Docker BuildKit "SecretsUsedInArgOrEnv" warning
   INJECT_TOKEN="$GITHUB_TOKEN_VALUE" python3 -c "
 import json, re, os
 f = '$DEVCONTAINER_DIR/.devcontainer/devcontainer.json'
 raw = re.sub(r'//.*', '', open(f).read())
 d = json.loads(raw)
-d.setdefault('containerEnv', {})['SANDBOX_GITHUB_TOKEN'] = os.environ['INJECT_TOKEN']
+d.setdefault('remoteEnv', {})['SANDBOX_GITHUB_TOKEN'] = os.environ['INJECT_TOKEN']
 json.dump(d, open(f, 'w'), indent=2)
 "
 fi
