@@ -133,6 +133,6 @@ Repos are cloned into `repos/` inside the workspace directory, with `main` symli
 ## Security
 
 - **No SSH keys** are forwarded into the container. Authentication uses a GitHub PAT over HTTPS.
-- The PAT is stored in `.env` (gitignored) and injected via `containerEnv` — it never touches the filesystem inside the container as a standalone file.
+- The PAT is stored in `.env` (gitignored) and injected via `containerEnv` at launch. Inside the container, `setup.sh` writes it to `~/.bashrc` (as `GH_TOKEN`) and to `~/.gitconfig-local` (as a git credential helper) so that both `gh` CLI and `git push` work in all contexts. The token is visible in plaintext within the container but never leaves it — the container and its filesystem are destroyed on exit.
 - `~/.gitconfig` and `~/.gnupg` are mounted **read-only**.
 - `~/.claude` is mounted **read-write** so that credentials saved via `claude login` persist across container rebuilds. This means code running inside the sandbox can read and write to your host `~/.claude` directory. If this is a concern, you can switch the mount to read-only in `devcontainer.json` (you'll need to re-authenticate on every launch).
