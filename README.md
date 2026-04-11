@@ -126,7 +126,7 @@ Repos are cloned into `repos/` inside the workspace directory, with `main` symli
 1. Creates a temp directory under `/tmp` with devcontainer config
 2. Reads `SANDBOX_GITHUB_TOKEN` from `.env` and injects it into the container environment
 3. Starts a Docker container (`mcr.microsoft.com/devcontainers/base:ubuntu`)
-4. Installs Claude Code, configures git HTTPS credentials using the PAT, clones repos
+4. Builds the image with Node.js and Claude Code pre-installed (cached in Docker layer), configures git HTTPS credentials using the PAT, clones repos
 5. Mounts `~/.gitconfig` and `~/.gnupg` read-only from the host; mounts `~/.claude` read-write so that `claude login` credentials persist across containers
 6. On exit (shell close, Ctrl+C, or prompt completion), the container and temp directory are automatically removed
 
