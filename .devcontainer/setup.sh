@@ -114,6 +114,10 @@ WORKSPACE_ROOT="$(ls -d /workspaces/*/ 2>/dev/null | head -1)"
 WORKSPACE_ROOT="${WORKSPACE_ROOT%/}"
 export WORKSPACE_ROOT
 
+# Instance name for prompt/title identification
+SANDBOX_INSTANCE="$(basename "$WORKSPACE_ROOT" 2>/dev/null)"
+export SANDBOX_INSTANCE
+
 # ─── Worktree helpers ───
 wt-add() {
   local branch="${1:?Usage: wt-add <branch> [start-point]}"
@@ -192,6 +196,51 @@ HELPERS
 
 # Always use --dangerously-skip-permissions inside the sandbox container
 echo "alias claude='claude --dangerously-skip-permissions'" >> "$HOME/.bashrc"
+
+echo "==> Configuring terminal prompt with instance name..."
+# Patch the bash prompt to prepend the instance name
+# The devcontainer theme's __bash_prompt runs during .bashrc sourcing,
+# so we append a PS1 override that adds the instance tag after the fact.
+cat >> "$HOME/.bashrc" << 'PROMPT_PATCH'
+
+# ─── Instance name in prompt and terminal title ───
+# Prepend instance tag to the existing PS1 set by the devcontainer theme
+PS1="\[\033[1;36m\][${SANDBOX_INSTANCE:-sandbox}]\[\033[0m\] ${PS1}"
+
+if [[ "$TERM" == "xterm" ]]; then
+    preexec() {
+        local cmd="${BASH_COMMAND}"
+        echo -ne "\033]0;[${SANDBOX_INSTANCE:-sandbox}] ${USER}: ${cmd}\007"
+    }
+    precmd() {
+        echo -ne "\033]0;[${SANDBOX_INSTANCE:-sandbox}] ${USER}: ${PWD}\007"
+    }
+    trap 'preexec' DEBUG
+    PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }precmd"
+fi
+PROMPT_PATCH
+
+# Patch the zsh prompt to include instance name
+cat >> "$HOME/.zshrc" << 'ZSH_PATCH'
+
+# Instance name for prompt/title identification
+WORKSPACE_ROOT="$(ls -d /workspaces/*/ 2>/dev/null | head -1)"
+WORKSPACE_ROOT="${WORKSPACE_ROOT%/}"
+export WORKSPACE_ROOT
+SANDBOX_INSTANCE="$(basename "$WORKSPACE_ROOT" 2>/dev/null)"
+export SANDBOX_INSTANCE
+
+# Prepend instance name to the prompt
+PROMPT="%{$fg_bold[cyan]%}[${SANDBOX_INSTANCE:-sandbox}]%{$reset_color%} ${PROMPT}"
+
+# Set terminal title to include instance name
+precmd() {
+  print -Pn "\e]0;[${SANDBOX_INSTANCE:-sandbox}] %n: %~\a"
+}
+preexec() {
+  print -Pn "\e]0;[${SANDBOX_INSTANCE:-sandbox}] %n: $1\a"
+}
+ZSH_PATCH
 
 echo "==> Auto-trusting workspace directories for Claude Code..."
 CLAUDE_JSON="$HOME/.claude/.claude.json"
