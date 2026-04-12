@@ -194,25 +194,48 @@ ws-main() {
 
 HELPERS
 
-# Always use --dangerously-skip-permissions inside the sandbox container
-echo "alias claude='claude --dangerously-skip-permissions'" >> "$HOME/.bashrc"
-
 echo "==> Configuring terminal prompt with instance name..."
-# Patch the bash prompt to prepend the instance name
-# The devcontainer theme's __bash_prompt runs during .bashrc sourcing,
-# so we append a PS1 override that adds the instance tag after the fact.
+# Ensure login shells source .bashrc through the standard profile chain.
+# bash --login reads ~/.bash_profile first; without it, ~/.profile is used.
+# Creating .bash_profile that sources .profile preserves the default Ubuntu
+# chain (.profile → .bashrc) and ensures our .bashrc additions always run.
+if [ ! -f "$HOME/.bash_profile" ]; then
+    echo '[ -f "$HOME/.profile" ] && . "$HOME/.profile"' > "$HOME/.bash_profile"
+fi
+
+# Use a PROMPT_COMMAND function instead of a one-shot PS1 assignment.
+# This runs AFTER the devcontainer theme's prompt function, so the instance
+# tag survives even if something resets PS1 between prompts.
+# The claude wrapper restores the title immediately after Claude Code exits
+# (Claude Code overwrites the terminal title while it runs).
 cat >> "$HOME/.bashrc" << 'PROMPT_PATCH'
 
 # ─── Instance name in prompt and terminal title ───
-# Prepend instance tag to the existing PS1 set by the devcontainer theme
-PS1="\[\033[1;36m\][${SANDBOX_INSTANCE:-sandbox}]\[\033[0m\] ${PS1}"
+__sandbox_set_title() {
+    case "$TERM" in xterm*)
+        printf '\033]0;[%s] %s: %s\007' "${SANDBOX_INSTANCE:-sandbox}" "${USER}" "${PWD}"
+    ;; esac
+}
 
-case "$TERM" in xterm*)
-    __sandbox_title() {
-        echo -ne "\033]0;[${SANDBOX_INSTANCE:-sandbox}] ${USER}: ${PWD}\007"
-    }
-    PROMPT_COMMAND="__sandbox_title${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
-;; esac
+__sandbox_prompt() {
+    local tag="[${SANDBOX_INSTANCE:-sandbox}]"
+    # Prepend instance tag to PS1 (idempotent — skips if already tagged)
+    if [[ "$PS1" != *"$tag"* ]]; then
+        PS1="\[\033[1;36m\]${tag}\[\033[0m\] ${PS1}"
+    fi
+    __sandbox_set_title
+}
+# Append so it runs after any theme prompt functions in PROMPT_COMMAND
+PROMPT_COMMAND="${PROMPT_COMMAND:+${PROMPT_COMMAND}; }__sandbox_prompt"
+
+# Wrap claude to always use --dangerously-skip-permissions inside the sandbox
+# and restore the terminal title immediately after Claude Code exits
+claude() {
+    command claude --dangerously-skip-permissions "$@"
+    local rc=$?
+    __sandbox_set_title
+    return $rc
+}
 PROMPT_PATCH
 
 # Patch the zsh prompt to include instance name

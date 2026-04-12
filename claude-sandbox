@@ -40,6 +40,7 @@ EXTRA_REPOS=()    # "org/repo" entries
 EXTRA_BRANCHES=() # corresponding branch per repo ("" if none)
 CLAUDE_PROMPT=""
 DEVCONTAINER_DIR=""
+OPEN_VSCODE=false
 
 usage() {
   cat << 'EOF'
@@ -53,6 +54,7 @@ Options:
   --branch <branch>          Override branch for the main repo (useful with auto-detect).
   --repo org/repo[@branch]   Additional repo. Repeat for multiple. Append @branch per repo.
   --claude "prompt"          Run Claude Code non-interactively with this prompt.
+  --vs                       Open VS Code attached to the container workspace.
   --dir /path                Override the devcontainer project directory.
   -h, --help                 Show this help.
 
@@ -87,6 +89,7 @@ while [[ $# -gt 0 ]]; do
       shift 2 ;;
     --branch)     BRANCH_OVERRIDE="$2"; shift 2 ;;
     --claude)     CLAUDE_PROMPT="$2"; shift 2 ;;
+    --vs)         OPEN_VSCODE=true; shift ;;
     --dir)        DEVCONTAINER_DIR="$2"; shift 2 ;;
     -h|--help)    usage ;;
     *)            echo "Unknown option: $1"; usage ;;
@@ -179,7 +182,7 @@ clone_repo() {
   local name="\$(basename "\$repo")"
   local target="\$REPOS_DIR/\$name"
 
-  if [ -d "\$target" ]; then
+  if [ -d "\$target/.git" ]; then
     echo "  ↻ \$name already cloned, pulling latest..."
     git -C "\$target" pull --ff-only 2>/dev/null || true
   else
@@ -227,10 +230,20 @@ FOOTER
 
 chmod +x "$DEVCONTAINER_DIR/.devcontainer/init-repos.sh"
 
-# ─── Patch postCreateCommand to also run init-repos ───
-# We chain it: setup.sh runs first, then init-repos.sh
-sed -i '' 's|"postCreateCommand":.*|"postCreateCommand": "bash .devcontainer/setup.sh \&\& bash .devcontainer/init-repos.sh",|' \
-  "$DEVCONTAINER_DIR/.devcontainer/devcontainer.json"
+# ─── Patch devcontainer.json before launch ───
+CONTAINER_WORKSPACE="/workspaces/$(basename "$DEVCONTAINER_DIR")"
+
+# Use absolute paths for postCreateCommand so it works regardless of workspaceFolder
+INJECT_WORKSPACE="$CONTAINER_WORKSPACE" \
+python3 -c "
+import json, re, os
+f = '$DEVCONTAINER_DIR/.devcontainer/devcontainer.json'
+raw = re.sub(r'//.*', '', open(f).read())
+d = json.loads(raw)
+ws = os.environ['INJECT_WORKSPACE']
+d['postCreateCommand'] = f'bash {ws}/.devcontainer/setup.sh && bash {ws}/.devcontainer/init-repos.sh'
+json.dump(d, open(f, 'w'), indent=2)
+"
 
 # ─── Launch ───
 echo "==> Starting devcontainer..."
@@ -262,7 +275,31 @@ cleanup() {
 }
 trap cleanup EXIT
 
-CONTAINER_WORKSPACE="/workspaces/$(basename "$DEVCONTAINER_DIR")"
+# ─── Open VS Code if requested ───
+if [[ "$OPEN_VSCODE" == true ]]; then
+  if ! command -v code &> /dev/null; then
+    echo "Error: 'code' CLI not found. Install it from VS Code: Cmd+Shift+P → 'Shell Command: Install'"
+    exit 1
+  fi
+
+  # On macOS, GUI apps (including VS Code) inherit their environment from
+  # launchd, not the shell.  If the default Docker socket is missing, publish
+  # DOCKER_HOST via launchctl so VS Code's Dev Containers extension can find
+  # Docker.  This survives for the login session — no sudo, no settings files.
+  if [[ "$(uname)" == "Darwin" && ! -S /var/run/docker.sock ]]; then
+    DOCKER_ENDPOINT=$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || echo "")
+    if [[ -n "$DOCKER_ENDPOINT" ]]; then
+      launchctl setenv DOCKER_HOST "$DOCKER_ENDPOINT"
+      echo "    Set DOCKER_HOST=$DOCKER_ENDPOINT (via launchctl)"
+    fi
+  fi
+
+  MAIN_REPO_DIR="${CONTAINER_WORKSPACE}/repos/$(basename "$MAIN_REPO")"
+  HEX_PATH=$(printf '%s' "$DEVCONTAINER_DIR" | xxd -p -c 256 | tr -d '\n')
+  VSCODE_URI="vscode-remote://dev-container+${HEX_PATH}${MAIN_REPO_DIR}"
+  echo "==> Opening VS Code attached to container..."
+  code --folder-uri "$VSCODE_URI"
+fi
 
 if [[ -n "$CLAUDE_PROMPT" ]]; then
   echo "==> Running Claude Code with prompt..."
@@ -271,5 +308,5 @@ if [[ -n "$CLAUDE_PROMPT" ]]; then
 else
   echo "==> Dropping into shell (main repo is at $CONTAINER_WORKSPACE/main)..."
   devcontainer exec --workspace-folder "$DEVCONTAINER_DIR" \
-    bash -c "cd $CONTAINER_WORKSPACE/main && exec bash"
+    bash -c "cd $CONTAINER_WORKSPACE/main && exec bash -l"
 fi
