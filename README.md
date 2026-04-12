@@ -65,6 +65,7 @@ claude-sandbox --main org/repo[@branch] [OPTIONS]           # explicit main repo
 | `--branch <branch>` | Override branch for the main repo (useful with auto-detect). |
 | `--repo org/repo[@branch]` | Additional repo. Repeat for multiple. |
 | `--claude "prompt"` | Run Claude non-interactively with this prompt. |
+| `--vs` | Open VS Code attached to the container workspace. |
 | `--dir /path` | Override the temp project directory. |
 | `-h, --help` | Show help. |
 
@@ -84,6 +85,12 @@ claude-sandbox --repo myorg/shared-lib@feature-x
 claude-sandbox --branch fix-auth \
   --claude "Fix the auth bug in issue #42"
 
+# Open VS Code alongside the terminal session
+claude-sandbox --vs
+
+# Combine flags: VS Code + different branch + extra repo
+claude-sandbox --vs --branch fix-auth --repo myorg/shared-lib
+
 # Explicit: specify everything
 claude-sandbox \
   --main myorg/api-service@fix-auth \
@@ -91,11 +98,25 @@ claude-sandbox \
   --repo myorg/infra-config@staging
 ```
 
+## VS Code integration
+
+The `--vs` flag opens a VS Code window attached to the running container, with the main repo directory open. The interactive terminal session runs in parallel — you get both a CLI and a full IDE.
+
+```bash
+claude-sandbox --vs
+```
+
+**Prerequisites:**
+- [VS Code](https://code.visualstudio.com/) with the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension
+- The `code` CLI: open VS Code, run `Cmd+Shift+P` → "Shell Command: Install 'code' command in PATH"
+
+**Docker socket on macOS:** If Docker Desktop's default socket (`/var/run/docker.sock`) isn't present, the script automatically sets `DOCKER_HOST` via `launchctl` so VS Code can find Docker. If VS Code was already running when you first use `--vs`, you may need to restart it once (`Cmd+Q`, then re-run) for the change to take effect.
+
 ## Inside the container
 
 ### Claude Code
 
-Claude runs with `--dangerously-skip-permissions` (auto-approved for all tools). In interactive mode, just type `claude` — the flag is aliased automatically.
+Claude runs with `--dangerously-skip-permissions` (auto-approved for all tools). In interactive mode, just type `claude` — the flag is applied automatically.
 
 ### Workspace layout
 
@@ -128,7 +149,8 @@ Repos are cloned into `repos/` inside the workspace directory, with `main` symli
 3. Starts a Docker container (`mcr.microsoft.com/devcontainers/base:ubuntu`)
 4. Builds the image with Node.js and Claude Code pre-installed (cached in Docker layer), configures git HTTPS credentials using the PAT, clones repos
 5. Mounts `~/.gitconfig` and `~/.gnupg` read-only from the host; mounts `~/.claude` read-write so that `claude login` credentials persist across containers
-6. On exit (shell close, Ctrl+C, or prompt completion), the container and temp directory are automatically removed
+6. If `--vs` is passed, opens VS Code attached to the container via `vscode-remote://` URI (resolves Docker socket automatically on macOS)
+7. On exit (shell close, Ctrl+C, or prompt completion), the container and temp directory are automatically removed
 
 ## Security
 
