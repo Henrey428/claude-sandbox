@@ -207,17 +207,12 @@ cat >> "$HOME/.bashrc" << 'PROMPT_PATCH'
 # Prepend instance tag to the existing PS1 set by the devcontainer theme
 PS1="\[\033[1;36m\][${SANDBOX_INSTANCE:-sandbox}]\[\033[0m\] ${PS1}"
 
-if [[ "$TERM" == "xterm" ]]; then
-    preexec() {
-        local cmd="${BASH_COMMAND}"
-        echo -ne "\033]0;[${SANDBOX_INSTANCE:-sandbox}] ${USER}: ${cmd}\007"
-    }
-    precmd() {
+case "$TERM" in xterm*)
+    __sandbox_title() {
         echo -ne "\033]0;[${SANDBOX_INSTANCE:-sandbox}] ${USER}: ${PWD}\007"
     }
-    trap 'preexec' DEBUG
-    PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }precmd"
-fi
+    PROMPT_COMMAND="__sandbox_title${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+;; esac
 PROMPT_PATCH
 
 # Patch the zsh prompt to include instance name
