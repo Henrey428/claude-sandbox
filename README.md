@@ -149,12 +149,14 @@ Repos are cloned into `repos/` inside the workspace directory, with `main` symli
 3. Starts a Docker container (`mcr.microsoft.com/devcontainers/base:ubuntu`)
 4. Builds the image with Node.js and Claude Code pre-installed (cached in Docker layer), configures git HTTPS credentials using the PAT, clones repos
 5. Mounts `~/.gitconfig` and `~/.gnupg` read-only from the host; mounts `~/.claude` read-write so that `claude login` credentials persist across containers
-6. If `--vs` is passed, opens VS Code attached to the container via `vscode-remote://` URI (resolves Docker socket automatically on macOS)
-7. On exit (shell close, Ctrl+C, or prompt completion), the container and temp directory are automatically removed
+6. In auto-detect mode, mounts the host repo's git object database read-only (`/mnt/host-git`) and clones with `git clone --reference --dissociate` — only objects missing from your local clone are fetched over the network, which makes cloning huge repos fast. Falls back to a normal clone if anything goes wrong
+7. If `--vs` is passed, opens VS Code attached to the container via `vscode-remote://` URI (resolves Docker socket automatically on macOS)
+8. On exit (shell close, Ctrl+C, or prompt completion), the container and temp directory are automatically removed
 
 ## Security
 
 - **No SSH keys** are forwarded into the container. Authentication uses a GitHub PAT over HTTPS.
 - The PAT is stored in `.env` (gitignored) and injected via `containerEnv` at launch. Inside the container, `setup.sh` writes it to `~/.bashrc` (as `GH_TOKEN`) and to `~/.gitconfig-local` (as a git credential helper) so that both `gh` CLI and `git push` work in all contexts. The token is visible in plaintext within the container but never leaves it — the container and its filesystem are destroyed on exit.
 - `~/.gitconfig` and `~/.gnupg` are mounted **read-only**.
+- The host repo mount used for fast clones is **narrow and read-only**: only `.git/objects`, `.git/refs`, `.git/HEAD`, and `.git/packed-refs` are mounted — never the working tree. Untracked files (`.env`, secrets, build artifacts) are not part of the mount and cannot be read from the container; `.git/config` (which may contain credentials in remote URLs) is excluded too. The read-only flag is enforced by the kernel, so the sandbox cannot modify the host repo.
 - `~/.claude` is mounted **read-write** so that credentials saved via `claude login` persist across container rebuilds. This means code running inside the sandbox can read and write to your host `~/.claude` directory. If this is a concern, you can switch the mount to read-only in `devcontainer.json` (you'll need to re-authenticate on every launch).

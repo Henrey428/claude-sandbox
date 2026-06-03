@@ -35,6 +35,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MAIN_REPO=""
 MAIN_BRANCH=""
+HOST_GIT_DIR=""
 BRANCH_OVERRIDE=""
 EXTRA_REPOS=()    # "org/repo" entries
 EXTRA_BRANCHES=() # corresponding branch per repo ("" if none)
@@ -110,6 +111,9 @@ if [[ -z "$MAIN_REPO" ]]; then
   # Extract org/repo from SSH or HTTPS URL
   MAIN_REPO=$(echo "$REMOTE_URL" | sed -E 's|^git@github\.com:|/|;s|^https://github\.com/||;s|\.git$||;s|^/||')
   MAIN_BRANCH=$(git branch --show-current 2>/dev/null || echo "")
+  # Remember the host repo's git dir so the container can reuse its objects
+  # for a fast reference clone (resolved via common-dir to support worktrees)
+  HOST_GIT_DIR="$(cd "$(git rev-parse --git-common-dir)" && pwd)"
   echo "==> Auto-detected repo: $MAIN_REPO${MAIN_BRANCH:+ @ $MAIN_BRANCH}"
 fi
 
@@ -167,6 +171,33 @@ json.dump(d, open(f, 'w'), indent=2)
 "
 fi
 
+# ─── Mount host git objects (read-only) for fast reference clones ───
+# Only the object database and refs are mounted — never the working tree.
+# Untracked files (.env, secrets, node_modules) are not part of the mount,
+# and the kernel-enforced read-only flag means the sandbox cannot touch
+# the host repo. The container clones with --reference --dissociate, so
+# only objects missing on the host are fetched over the network.
+if [[ -n "$HOST_GIT_DIR" ]]; then
+  echo "==> Mounting host git objects for fast clone: $HOST_GIT_DIR"
+  INJECT_PACKED=""
+  [[ -f "$HOST_GIT_DIR/packed-refs" ]] && INJECT_PACKED="1"
+  INJECT_GIT_DIR="$HOST_GIT_DIR" INJECT_PACKED="$INJECT_PACKED" python3 -c "
+import json, re, os
+f = '$DEVCONTAINER_DIR/.devcontainer/devcontainer.json'
+raw = re.sub(r'//.*', '', open(f).read())
+d = json.loads(raw)
+g = os.environ['INJECT_GIT_DIR']
+parts = ['objects', 'refs', 'HEAD']
+if os.environ.get('INJECT_PACKED'):
+    parts.append('packed-refs')
+mounts = d.setdefault('mounts', [])
+for p in parts:
+    mounts.append({'source': f'{g}/{p}', 'target': f'/mnt/host-git/{p}',
+                   'type': 'bind', 'readOnly': True})
+json.dump(d, open(f, 'w'), indent=2)
+"
+fi
+
 # ─── Generate an init script that clones repos inside the container ───
 cat > "$DEVCONTAINER_DIR/.devcontainer/init-repos.sh" << INIT
 #!/usr/bin/env bash
@@ -179,12 +210,22 @@ mkdir -p "\$REPOS_DIR"
 clone_repo() {
   local repo="\$1"
   local branch="\$2"
+  local ref="\${3:-}"   # optional local object store for --reference clone
   local name="\$(basename "\$repo")"
   local target="\$REPOS_DIR/\$name"
 
   if [ -d "\$target/.git" ]; then
     echo "  ↻ \$name already cloned, pulling latest..."
     git -C "\$target" pull --ff-only 2>/dev/null || true
+  elif [ -n "\$ref" ] && [ -d "\$ref/objects" ]; then
+    # Reuse host objects: only missing objects come over the network.
+    # --dissociate copies borrowed objects so the clone is self-contained.
+    echo "  ⬇ Cloning \$repo (reusing host git objects) → \$target"
+    if ! git clone --reference "\$ref" --dissociate "https://github.com/\$repo.git" "\$target"; then
+      echo "  ⚠ Reference clone failed — falling back to full clone"
+      rm -rf "\$target"
+      git clone "https://github.com/\$repo.git" "\$target"
+    fi
   else
     echo "  ⬇ Cloning \$repo → \$target"
     git clone "https://github.com/\$repo.git" "\$target"
@@ -203,8 +244,8 @@ clone_repo() {
 
 echo "==> Cloning repositories..."
 
-# Main repo
-clone_repo "$MAIN_REPO" "$MAIN_BRANCH"
+# Main repo (reference clone from host objects if mounted)
+clone_repo "$MAIN_REPO" "$MAIN_BRANCH" "${HOST_GIT_DIR:+/mnt/host-git}"
 MAIN_NAME="\$(basename "$MAIN_REPO")"
 ln -sfn "\$REPOS_DIR/\$MAIN_NAME" "\$WORKSPACE_DIR/main"
 echo "  ★ Main repo: \$MAIN_NAME"
