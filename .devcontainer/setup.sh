@@ -2,11 +2,14 @@
 set -euo pipefail
 
 echo "==> Checking Claude Code..."
-if command -v claude &> /dev/null; then
-  echo "  ✓ Claude Code already installed ($(claude --version 2>/dev/null || echo 'cached'))"
+# Verify the binary actually RUNS — a launcher on PATH whose native binary is
+# missing still satisfies `command -v`, so check `claude --version` too.
+if command -v claude &> /dev/null && claude --version &> /dev/null; then
+  echo "  ✓ Claude Code already installed ($(claude --version 2>/dev/null))"
 else
-  echo "  Installing Claude Code..."
-  npm install -g @anthropic-ai/claude-code
+  echo "  Installing Claude Code (native installer)..."
+  curl -fsSL https://claude.ai/install.sh | bash
+  export PATH="$HOME/.local/bin:$PATH"
 fi
 
 echo "==> Making gitconfig writable..."
